@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Realistic Lizard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1208; overflow: hidden; cursor: none; }
+    canvas { display: block; }
+    #info {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      color: rgba(255,220,100,0.4); font-family: monospace; font-size: 12px;
+      letter-spacing: 2px; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">MOVE MOUSE · CLICK TO TOGGLE GROUND</div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+window.addEventListener('resize', () => { canvas.width = innerWidth; canvas.height = innerHeight; });
+
+// ── Input ──────────────────────────────────────────────
+const Input = { mouse: { x: canvas.width/2, y: canvas.height/2, left: false, middle: false, right: false } };
+document.addEventListener('mousemove', e => { Input.mouse.x = e.clientX; Input.mouse.y = e.clientY; });
+document.addEventListener('mousedown', e => {
+  if (e.button === 0) Input.mouse.left = true;
+  if (e.button === 1) Input.mouse.middle = true;
+  if (e.button === 2) Input.mouse.right = true;
+});
+document.addEventListener('mouseup', e => {
+  if (e.button === 0) Input.mouse.left = false;
+  if (e.button === 1) Input.mouse.middle = false;
+  if (e.button === 2) Input.mouse.right = false;
+});
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+
+const SEGS = 60;
+const spine = [];
+for (let i = 0; i < SEGS; i++) spine.push({ x: canvas.width/2, y: canvas.height/2 });
+
+function bodyWidth(i) {
+
+  if (i < 3) return lerp(10, 18, i/3);     // head
+  if (i < 8) return lerp(18, 12, (i-3)/5); // neck
+  if (i < 28) return lerp(12, 15, (i-8)/20); // torso
+  if (i < 40) return lerp(15, 8, (i-28)/12); // hips
+  return lerp(8, 1, (i-40)/(SEGS-40));     // tail
+}
+
+
+const LEG_JOINTS = [
+  { seg: 10, side: -1, phase: 0 },
+  { seg: 10, side:  1, phase: Math.PI },
+  { seg: 22, side: -1, phase: Math.PI },
+  { seg: 22, side:  1, phase: 0 },
+];
+
+let t = 0;
+let tongueOut = 0, tongueDir = 1;
+let showGround = false;
+canvas.addEventListener('click', () => { showGround = !showGround; });
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+function angle(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
+function dist(ax, ay, bx, by) { return Math.hypot(bx-ax, by-ay); }
+
+
+function update() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  t += 0.04;
+
+
+  spine[0].x += (Input.mouse.x - spine[0].x) * 0.14;
+  spine[0].y += (Input.mouse.y - spine[0].y) * 0.14;
+
+
+  let spd = dist(spine[0].x, spine[0].y, Input.mouse.x, Input.mouse.y);
+  let waveAmp = clamp(spd * 0.03, 0.3, 3.5);
+
+  for (let i = 1; i < SEGS; i++) {
+    let waveX = Math.sin(t * 1.5 - i * 0.22) * waveAmp * (i < 8 ? 0.2 : 1);
+    let waveY = Math.cos(t * 1.2 - i * 0.18) * waveAmp * 0.3;
+    let dx = spine[i-1].x - spine[i].x;
+    let dy = spine[i-1].y - spine[i].y;
+    let follow = 0.3 - i * 0.002;
+    spine[i].x += dx * Math.max(0.08, follow) + waveX;
+    spine[i].y += dy * Math.max(0.08, follow) + waveY;
+  }
+
+
+  if (showGround) drawGround();
+  drawShadow();
+  drawBody();
+  drawLegs();
+  drawHead();
+  drawSpots();
+
+  requestAnimationFrame(update);
+}
+
+function drawGround() {
+  let gr = ctx.createLinearGradient(0, canvas.height * 0.6, 0, canvas.height);
+  gr.addColorStop(0, '#2a1f0a');
+  gr.addColorStop(1, '#0d0a04');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, canvas.height * 0.6, canvas.width, canvas.height * 0.4);
+
+  ctx.strokeStyle = 'rgba(80,60,20,0.15)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 30; i++) {
+    let y = canvas.height * 0.6 + Math.random() * canvas.height * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvas.width, y);
+    ctx.stroke();
+  }
+}
+
+function drawShadow() {
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  for (let i = 2; i < SEGS - 5; i++) {
+    let w = bodyWidth(i) * 0.9;
+    let rg = ctx.createRadialGradient(spine[i].x+3, spine[i].y+8, 0, spine[i].x+3, spine[i].y+8, w * 2);
+    rg.addColorStop(0, 'rgba(0,0,0,0.8)');
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.ellipse(spine[i].x + 4, spine[i].y + 10, w * 1.5, w * 0.6, 0, 0, Math.PI*2);
+    ctx.fillStyle = rg;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBody() {
+  let left = [], right = [];
+
+  for (let i = 0; i < SEGS - 1; i++) {
+    let a = spine[i], b = spine[i+1];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len, ny = dx / len;
+    let w = bodyWidth(i);
+    left.push({ x: a.x + nx * w, y: a.y + ny * w });
+    right.push({ x: a.x - nx * w, y: a.y - ny * w });
+  }
+
+  let hd = spine[0];
+  let tl = spine[SEGS-1];
+  let sg = ctx.createLinearGradient(hd.x, hd.y, tl.x, tl.y);
+  sg.addColorStop(0,   '#5a7a3a');
+  sg.addColorStop(0.15,'#4a6e30');
+  sg.addColorStop(0.35,'#6b8c45');
+  sg.addColorStop(0.6, '#4a6020');
+  sg.addColorStop(1,   '#2a3a15');
+
+  
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+  for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+  for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+  ctx.closePath();
+  ctx.fillStyle = sg;
+  ctx.fill();
+
+
+  let bg = ctx.createLinearGradient(hd.x, hd.y, tl.x, tl.y);
+  bg.addColorStop(0,   'rgba(200,210,150,0.25)');
+  bg.addColorStop(0.5, 'rgba(180,200,130,0.15)');
+  bg.addColorStop(1,   'rgba(100,130,60,0.05)');
+
+  ctx.beginPath();
+  for (let i = 0; i < left.length; i++) {
+    let lx = left[i].x, ly = left[i].y;
+    let rx = right[i].x, ry = right[i].y;
+    let cx = (lx + rx) / 2 + (right[i].x - left[i].x) * 0.1;
+    let cy = (ly + ry) / 2 + (right[i].y - left[i].y) * 0.1;
+    if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+  }
+  ctx.strokeStyle = bg;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+
+  ctx.save();
+  for (let i = 5; i < SEGS - 10; i += 3) {
+    let a = spine[i], b = spine[i+1];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let ang = Math.atan2(dy, dx);
+    let w = bodyWidth(i);
+    let scaleSize = w * 0.35;
+
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(ang + Math.PI/2);
+
+    ctx.beginPath();
+    ctx.ellipse(0, -w * 0.6, scaleSize * 0.5, scaleSize * 0.8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(30,50,10,0.3)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+  ctx.restore();
+
+  
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+  for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+  ctx.strokeStyle = 'rgba(20,35,8,0.6)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(right[0].x, right[0].y);
+  for (let i = 1; i < right.length; i++) ctx.lineTo(right[i].x, right[i].y);
+  ctx.stroke();
+}
+
+
+function drawSpots() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  let spotsData = [
+    {si: 12, offset: 0}, {si: 16, offset: 0.3}, {si: 20, offset: -0.2},
+    {si: 25, offset: 0.2}, {si: 30, offset: -0.1}, {si: 18, offset: 0.5}
+  ];
+  for (let d of spotsData) {
+    let a = spine[d.si];
+    let w = bodyWidth(d.si);
+    let rg = ctx.createRadialGradient(a.x + d.offset * w, a.y, 0, a.x + d.offset * w, a.y, w * 1.2);
+    rg.addColorStop(0, 'rgba(120,160,60,0.6)');
+    rg.addColorStop(0.5, 'rgba(80,110,30,0.3)');
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.ellipse(a.x + d.offset * w, a.y, w * 1.2, w * 0.8, 0, 0, Math.PI*2);
+    ctx.fillStyle = rg;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+
+function drawLegs() {
+  let walkSpeed = 0;
+  
+  let dx = Input.mouse.x - spine[5].x;
+  let dy = Input.mouse.y - spine[5].y;
+  walkSpeed = clamp(Math.hypot(dx, dy) * 0.05, 0, 1);
+
+  LEG_JOINTS.forEach((lj, k) => {
+    let si = lj.seg;
+    let a = spine[si], b = spine[si + 1];
+    let segDx = b.x - a.x, segDy = b.y - a.y;
+    let len = Math.hypot(segDx, segDy) || 1;
+    let nx = -segDy / len, ny = segDx / len;
+    let side = lj.side;
+
+    
+    let hipX = a.x + nx * bodyWidth(si) * side;
+    let hipY = a.y + ny * bodyWidth(si) * side;
+
+    
+    let bodyAng = Math.atan2(segDy, segDx);
+    let legAng = bodyAng + side * (Math.PI / 2.5);
+
+    
+    let phase = lj.phase;
+    let liftCycle = Math.sin(t * 2.5 + phase);
+    let stretchFwd = Math.cos(t * 2.5 + phase) * 0.5;
+
+    let thighLen = 22;
+    let shinLen = 20;
+
+    
+    let kneeX = hipX + Math.cos(legAng + stretchFwd) * thighLen;
+    let kneeY = hipY + Math.sin(legAng + stretchFwd) * thighLen;
+
+    
+    let footAng = legAng + stretchFwd * 1.2;
+    let footX = kneeX + Math.cos(footAng) * shinLen;
+    let footY = kneeY + Math.sin(footAng) * shinLen - Math.max(0, liftCycle) * 10 * walkSpeed;
+
+    
+    ctx.beginPath();
+    ctx.moveTo(hipX, hipY);
+    ctx.lineTo(kneeX, kneeY);
+    ctx.strokeStyle = '#3a5520';
+    ctx.lineWidth = 4.5;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+
+    ctx.beginPath();
+    ctx.moveTo(kneeX, kneeY);
+    ctx.lineTo(footX, footY);
+    ctx.strokeStyle = '#2e4418';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    
+    for (let toe = -2; toe <= 2; toe++) {
+      let toeAng = footAng + toe * 0.28;
+      let toeLen = 6 + Math.abs(toe) * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(footX, footY);
+      ctx.lineTo(
+        footX + Math.cos(toeAng) * toeLen,
+        footY + Math.sin(toeAng) * toeLen
+      );
+      ctx.strokeStyle = '#1e2e10';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Foot pad
+    ctx.beginPath();
+    ctx.arc(footX, footY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#1e2e10';
+    ctx.fill();
+  });
+}
+
+
+function drawHead() {
+  let h0 = spine[0], h1 = spine[2], h2 = spine[4];
+  let headAng = Math.atan2(h1.y - h0.y, h1.x - h0.x);
+  let headAng2 = Math.atan2(h2.y - h1.y, h2.x - h1.x);
+
+  ctx.save();
+  ctx.translate(h0.x, h0.y);
+  ctx.rotate(headAng);
+
+  
+  ctx.beginPath();
+  ctx.moveTo(26, 0);                  
+  ctx.bezierCurveTo(24, -8, 10, -14, -6, -12);
+  ctx.bezierCurveTo(-14, -10, -18, -6, -18, 0);
+  ctx.bezierCurveTo(-18, 6, -14, 10, -6, 12);
+  ctx.bezierCurveTo(10, 14, 24, 8, 26, 0);
+  ctx.fillStyle = '#5a7a3a';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(20,35,8,0.7)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  
+  ctx.beginPath();
+  ctx.moveTo(26, 0);
+  ctx.bezierCurveTo(18, -3, 10, -4, 0, -4);
+  ctx.strokeStyle = 'rgba(80,110,40,0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  
+  ctx.beginPath();
+  ctx.ellipse(20, -4, 2.5, 1.5, 0.5, 0, Math.PI*2);
+  ctx.fillStyle = '#1a2a08';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(20, 4, 2.5, 1.5, -0.5, 0, Math.PI*2);
+  ctx.fill();
+
+  
+  ctx.beginPath();
+  ctx.ellipse(4, -10, 7, 6, 0.3, 0, Math.PI*2);
+  ctx.fillStyle = '#2a3a10';
+  ctx.fill();
+
+  
+  ctx.beginPath();
+  ctx.ellipse(4, -10, 5, 5, 0, 0, Math.PI*2);
+  let eyeGrad = ctx.createRadialGradient(4, -10, 0.5, 4, -10, 5);
+  eyeGrad.addColorStop(0, '#1a1000');
+  eyeGrad.addColorStop(0.35, '#8B4513');
+  eyeGrad.addColorStop(0.65, '#c8820a');
+  eyeGrad.addColorStop(1, '#8B4513');
+  ctx.fillStyle = eyeGrad;
+  ctx.fill();
+
+  
+  ctx.beginPath();
+  ctx.ellipse(4, -10, 1.5, 4, 0, 0, Math.PI*2);
+  ctx.fillStyle = '#050200';
+  ctx.fill();
+
+ 
+  ctx.beginPath();
+  ctx.ellipse(5.5, -11.5, 1.2, 0.8, -0.5, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fill();
+
+  
+  ctx.beginPath();
+  ctx.moveTo(26, 0);
+  ctx.lineTo(8, -3);
+  ctx.lineTo(-5, -3);
+  ctx.strokeStyle = 'rgba(15,25,5,0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  
+  tongueOut += tongueDir * 0.06;
+  if (tongueOut > 1) { tongueOut = 1; tongueDir = -1; }
+  if (tongueOut < 0) { tongueOut = 0; tongueDir = Math.random() > 0.3 ? 1 : -1; }
+
+  let tLen = tongueOut * 22;
+  ctx.beginPath();
+  ctx.moveTo(14, 0);
+  ctx.lineTo(14 + tLen, 0);
+  ctx.strokeStyle = '#cc2222';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  
+  if (tLen > 8) {
+    let fx = 14 + tLen;
+    let forkLen = 7 * (tLen / 22);
+    ctx.beginPath();
+    ctx.moveTo(fx, 0);
+    ctx.lineTo(fx + forkLen, -forkLen * 0.5);
+    ctx.moveTo(fx, 0);
+    ctx.lineTo(fx + forkLen, forkLen * 0.5);
+    ctx.strokeStyle = '#cc2222';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  
+  ctx.beginPath();
+  ctx.ellipse(-8, 8, 10, 6, 0.3, 0, Math.PI);
+  ctx.fillStyle = 'rgba(200,100,50,0.3)';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+update();
+</script>
+</body>
+</html>
